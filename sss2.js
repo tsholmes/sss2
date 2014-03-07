@@ -343,12 +343,37 @@ var isnode =
     return ret;
   }
 
-  root.sss2 = function(src) {
+  function PrettyFormatter() { }
+  PrettyFormatter.prototype.format = function(rules) {
+    var ret = "";
+    for (var i = 0; i < rules.length; i++) {
+      if (i != 0) ret += "\n";
+      ret += this.formatRule(rules[i]);
+    }
+    return ret;
+  }
+  PrettyFormatter.prototype.formatRule = function(rule) {
+    var paths = flattenGraph(rule.selector);
+    var ret = "";
+    for (var i = 0; i < paths.length; i++) {
+      if (i != 0) ret += ",\n";
+      ret += paths[i].join(" ");
+    }
+    ret += " {\n";
+    for (var i = 0; i < rule.properties.length; i++) {
+      var prop = rule.properties[i];
+      ret += "  " + prop.name + " : " + prop.value.join(" ") + ";\n";
+    }
+    ret += "}\n";
+    return ret;
+  }
+
+  root.sss2 = function(src,pretty) {
     var reader = new Reader(src);
     var scanner = new Scanner(reader);
     var parser = new Parser(scanner);
     parser.parse();
-    var formatter = new MinifiedFormatter();
+    var formatter = pretty?new PrettyFormatter():new MinifiedFormatter();
     return formatter.format(parser.rules);
   }
 })(isnode?module.exports:window);
