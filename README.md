@@ -41,13 +41,18 @@ Example
 ```
 transforms to
 ```css
-div > span, div > a {
-  background-color: red
+div > span > img,
+div > a > img {
+  max-width : 100%;
 }
-div > span > img, div > a > img {
-  max-width: 100%;
+
+div > span img,
+div > a img {
+  max-height : 100%;
 }
-div > span img, div > a img {
-  max-height: 100%;
+
+div > span,
+div > a {
+  background-color : red;
 }
 ```
