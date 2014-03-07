@@ -152,7 +152,6 @@ var isnode =
         this.parseRule();
       } else if (t.type == "varName") {
         this.parseVarElement();
-        this.assert(this.s.scan(),";");
       } else {
         this.unexpected(this.s.scan());
       }
@@ -200,17 +199,10 @@ var isnode =
     this.symbols.pushScope();
 
     var props = [];
-    this.parseBodyElement(selector,props);
-
-    var type;
-    while ((type = this.s.peek().type) == ";") {
-      this.assert(this.s.scan(),";");
+    var type = this.s.peek().type;
+    while (type == "name" || type == "varName" || type == "(" || type == ">") {
+      this.parseBodyElement(selector,props);
       type = this.s.peek().type;
-      if (type == "name" || type == "varName" || type == "(" || type == ">") {
-        this.parseBodyElement(selector,props);
-      } else {
-        break;
-      }
     }
 
     if (props.length > 0)
@@ -251,13 +243,16 @@ var isnode =
     var name;
     this.assert(name=this.s.scan(),"name");
     this.assert(this.s.scan(),"=");
-    return {name:name.val,value:this.parseValue()};
+    var value = this.parseValue();
+    this.assert(this.s.scan(),";");
+    return {name:name.val,value:value};
   }
   Parser.prototype.parseVarElement = function() {
     var name;
     this.assert(name=this.s.scan(),"varName");
     this.assert(this.s.scan(),"=");
     this.symbols.set(name.val,this.parseValue());
+    this.assert(this.s.scan(),";");
   }
   Parser.prototype.parseValue = function() {
     var ret = [];

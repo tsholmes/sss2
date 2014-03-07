@@ -13,16 +13,16 @@ string  -> "[^"]+"
 Grammar
 ------
 ```
-document        -> (rule|(varElement ';'))*
+document        -> (rule|varElement)*
 rule            -> selector '{' body '}'
 selector        -> '(' selectorPath (',' selectorPath)* ')'
 selectorPath    -> (name|selector) ('>'? selectorPath)?
-body            -> bodyElement (';' bodyElement)* ';'?
+body            -> bodyElement*
 bodyElement     -> nestedRule | propertyElement | varElement
 nestedRule      -> nestedSelector '{' body '}'
 nestedSelector  -> '>' selector
-propertyElement -> name '=' value
-varElement      -> varName '=' value
+propertyElement -> name '=' value ';'
+varElement      -> varName '=' value ';'
 value           -> (string|varName)+
 ```
 
