@@ -75,6 +75,28 @@ var isnode =
     }
     return {val:res,type:"string",pos:pos};
   }
+  Scanner.prototype.scanComment = function() {
+    var pos = this.r.pos();
+    this.r.next();
+    var c = this.r.next();
+    if (c == '/') {
+      while ((c = this.r.peek()) && c != '\n') {
+        this.r.next();
+      }
+    } else if (c == '*') {
+      while (c = this.r.next()) {
+        if (c == '*' && this.r.peek() == '/') {
+          this.r.next();
+          break;
+        }
+      }
+      if (!c) {
+        throw new Error("Unclosed comment at " + JSON.stringify(pos));
+      }
+    } else {
+      throw new Error("Unexpected character '/' at " + JSON.stringify(pos));
+    }
+  }
   Scanner.prototype.scan = function() {
     if (this.peeked) {
       var ret = this.peeked;
@@ -95,6 +117,9 @@ var isnode =
       return this.scanString();
     } else if (Scanner.wsChars.indexOf(c) != -1) {
       this.r.next();
+      return this.scan();
+    } else if (c == '/') {
+      this.scanComment();
       return this.scan();
     } else {
       // unknown character
