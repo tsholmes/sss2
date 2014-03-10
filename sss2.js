@@ -156,6 +156,7 @@ var isnode =
     this.s = scanner;
     this.rules = [];
     this.symbols = new SymbolTable();
+    this.nextid = 0;
   }
   Parser.prototype.assert = function(t,type) {
     if (t.type != type) {
@@ -169,6 +170,43 @@ var isnode =
     } else {
       throw new Error("Unexpected EOF at " + JSON.stringify(t.pos));
     }
+  }
+  Parser.prototype.graphify = function(node) {
+    var ins = [];
+    var outs = [];
+    var nodes = {};
+    if (node.el) {
+      var elnode = { val: node.el, id: this.nextid++, ins: [], outs: [] };
+      ins.push(elnode.id);
+      outs.push(elnode.id);
+      nodes[elnode.id] = elnode;
+    } else {
+      for (var i = 0; i < node.graph.length; i++) {
+        var gel = node.graph[i];
+        var gnode = this.graphify(gel);
+        Util.append(ins,gnode.ins);
+        Util.append(outs,gnode.outs);
+        for (var id in gnode.nodes) {
+          nodes[id] = gnode.nodes[id];
+        }
+      }
+    }
+    if (node.next) {
+      var next = this.graphify(node.next);
+      for (var id in next.nodes) {
+        nodes[id] = next.nodes[id];
+      }
+      for (var i = 0; i < outs.length; i++) {
+        var ni = nodes[outs[i]];
+        for (var j = 0; j < next.ins.length; j++) {
+          var nj = nodes[next.ins[j]];
+          ni.outs.push(nj.id);
+          nj.ins.push(ni.id);
+        }
+      }
+      outs = next.outs;
+    }
+    return {nodes:nodes,ins:ins,outs:outs};
   }
   Parser.prototype.parseDocument = function() {
     var t;
@@ -230,8 +268,10 @@ var isnode =
       type = this.s.peek().type;
     }
 
-    if (props.length > 0)
-      this.rules.push({selector:selector,properties:props});
+    if (props.length > 0) {
+      var graph = this.graphify(selector);
+      this.rules.push({selector:graph,properties:props});
+    }
 
     this.symbols.popScope();
   }
@@ -306,28 +346,46 @@ var isnode =
     this.parseDocument();
   }
 
-  function flattenGraph(node) {
-    var start = [];
-    if (node.graph) {
-      for (var i = 0; i < node.graph.length; i++) {
-        var list = flattenGraph(node.graph[i]);
-        Util.append(start,list);
+  function postorder(nodes,node,visited,order) {
+    if (visited[node.id]) return;
+    for (var i = 0; i < node.outs.length; i++) {
+      postorder(nodes,nodes[node.outs[i]],visited,order);
+    }
+    visited[node.id] = true;
+    order.push(node.id);
+  }
+
+  function flattenGraph(graph) {
+    var order = [];
+    for (var i = 0; i < graph.ins.length; i++) {
+      postorder(graph.nodes,graph.nodes[graph.ins[i]],{},order);
+    }
+
+    var paths = {};
+
+    for (var i = 0; i < order.length; i++) {
+      var id = order[i];
+      var n = graph.nodes[id];
+      var start = [[n.val]];
+      var ps = [];
+      if (n.outs.length) {
+        for (var j = 0; j < n.outs.length; j++) {
+          var p2s = paths[n.outs[j]];
+          for (var k = 0; k < p2s.length; k++) {
+            ps.push(start.concat(p2s[k]));
+          }
+        }
+      } else {
+        ps.push(start);
       }
-    } else {
-      start.push([node.el]);
+      paths[id] = ps;
     }
-    var end;
-    if (node.next) {
-      end = flattenGraph(node.next);
-    } else {
-      end = [[]];
-    }
+
     var ret = [];
-    for (var i = 0; i < start.length; i++) {
-      for (var j = 0; j < end.length; j++) {
-        ret.push(start[i].concat(end[j]));
-      }
+    for (var i = 0; i < graph.ins.length; i++) {
+      Util.append(ret,paths[graph.ins[i]]);
     }
+
     return ret;
   }
 
@@ -416,7 +474,7 @@ if (!isnode) {
           s.innerText = css;
           document.head.appendChild(s);
         } catch (e) {
-          console.err(e);
+          console.error(e.stack);
         }
       }
     }
