@@ -402,3 +402,31 @@ var isnode =
     return formatter.format(parser.rules);
   }
 })(isnode?module.exports:window);
+
+if (!isnode) {
+  var convertTags = function(){
+    var styles = document.getElementsByTagName("style");
+    for (var i = 0; i < styles.length; i++) {
+      var style = styles[i];
+      if (style.type == "text/sss2") {
+        try {
+          var css = sss2(style.innerText);
+          var s = document.createElement("style");
+          s.type = "text/css";
+          s.innerText = css;
+          document.head.appendChild(s);
+        } catch (e) {
+          console.err(e);
+        }
+      }
+    }
+  };
+  if (document.readyState == "complete") {
+    convertTags();
+  } else {
+    document.addEventListener("readystatechange", function(){
+      if (document.readyState != "complete") return;
+      convertTags();
+    });
+  }
+}
