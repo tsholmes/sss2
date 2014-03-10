@@ -35,6 +35,18 @@ var isnode =
   Reader.prototype.pos = function() {
     return {line:this.line,char:this.char};
   }
+  Reader.prototype.getLine = function(line) {
+    var l = 0;
+    var ret = "";
+    for (var i = 0; i < this.src.length && l <= line; i++) {
+      if (this.src[i] == '\n') {
+        l++;
+      } else if (l == line) {
+        ret += this.src[i];
+      }
+    }
+    return ret;
+  }
 
   function Scanner(reader) {
     this.r = reader;
@@ -42,6 +54,13 @@ var isnode =
   Scanner.nameChars =
     "-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:";
   Scanner.wsChars = " \t\r\n";
+  Scanner.prototype.error = function(msg,pos) {
+    var errmsg = msg + " at " + JSON.stringify(pos) + "\n";
+    errmsg += this.r.getLine(pos.line) + "\n";
+    for (var i = 0; i < pos.char; i++) errmsg += " ";
+    errmsg += "^";
+    throw new Error(errmsg);
+  }
   Scanner.prototype.scanSingle = function() {
     var pos = this.r.pos();
     var c = this.r.next();
@@ -71,7 +90,7 @@ var isnode =
       res += this.r.next();
     }
     if (this.r.next() != '"') {
-      throw new Error("Unclosed string at " + JSON.stringify(pos));
+      this.error("Unclosed string",pos);
     }
     return {val:res,type:"string",pos:pos};
   }
@@ -91,10 +110,10 @@ var isnode =
         }
       }
       if (!c) {
-        throw new Error("Unclosed comment at " + JSON.stringify(pos));
+        this.error("Unclosed comment", pos);
       }
     } else {
-      throw new Error("Unexpected character '/' at " + JSON.stringify(pos));
+      this.error("Unexpected character '/'", pos);
     }
   }
   Scanner.prototype.scan = function() {
@@ -123,8 +142,7 @@ var isnode =
       return this.scan();
     } else {
       // unknown character
-      throw new Error("Unexpected character '" + c + "' at " +
-                      JSON.stringify(this.r.pos()));
+      this.error("Unexpected character '" + c + "'", this.r.pos());
     }
   }
   Scanner.prototype.peek = function() {
@@ -160,15 +178,14 @@ var isnode =
   }
   Parser.prototype.assert = function(t,type) {
     if (t.type != type) {
-      throw new Error("Expected '" + type + "' at " + JSON.stringify(t.pos));
+      this.s.error("Expected '" + type + '"', t.pos);
     }
   }
   Parser.prototype.unexpected = function(t) {
     if (t.type) {
-      throw new Error("Unexpected token '" + t.type + "' at " +
-                     JSON.stringify(t.pos));
+      this.s.error("Unexpected token '" + t.type + "'", t.pos);
     } else {
-      throw new Error("Unexpected EOF at " + JSON.stringify(t.pos));
+      this.s.error("Unexpected EOF", t.pos);
     }
   }
   Parser.prototype.graphify = function(node) {
@@ -327,9 +344,7 @@ var isnode =
       if (type == "varName") {
         var val = this.symbols.get(t.val);
         if (!val) {
-          console.log(this.symbols);
-          throw new Error("Undefined variable '" + t.val + "' at " +
-                         JSON.stringify(t.pos));
+          this.s.error("Undefined variable '" + t.val + "'", t.pos);
         }
         Util.append(ret,val);
       } else {
@@ -452,12 +467,19 @@ var isnode =
   }
 
   root.sss2 = function(src,pretty) {
-    var reader = new Reader(src);
-    var scanner = new Scanner(reader);
-    var parser = new Parser(scanner);
-    parser.parse();
-    var formatter = pretty?new PrettyFormatter():new MinifiedFormatter();
-    return formatter.format(parser.rules);
+    try {
+      var reader = new Reader(src);
+      var scanner = new Scanner(reader);
+      var parser = new Parser(scanner);
+      parser.parse();
+      var formatter = pretty?new PrettyFormatter():new MinifiedFormatter();
+      return formatter.format(parser.rules);
+    } catch (e) {
+      if (!isnode) {
+        console.error(e.stack);
+      }
+      throw e;
+    }
   }
 })(isnode?module.exports:window);
 
@@ -474,7 +496,6 @@ if (!isnode) {
           s.innerText = css;
           document.head.appendChild(s);
         } catch (e) {
-          console.error(e.stack);
         }
       }
     }
