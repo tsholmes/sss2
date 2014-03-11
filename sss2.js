@@ -40,6 +40,25 @@ var isnode =
         if (a1[i] != a2[i]) return false;
       }
       return true;
+    },
+    equalsWithout: function(a1,a2,el) {
+      var i1 = 0;
+      var i2 = 0;
+      while (i1 < a1.length && i2 < a2.length) {
+        if (a1[i1] == el) {
+          i1++;
+        } else if (a2[i2] == el) {
+          i2++;
+        } else if (a1[i1] == a2[i2]) {
+          i1++;
+          i2++;
+        } else {
+          return false;
+        }
+      }
+      while (i1 < a1.length && a1[i1] == el) i1++;
+      while (i2 < a2.length && a2[i2] == el) i2++;
+      return i1 == a1.length && i2 == a2.length;
     }
   };
 
@@ -463,19 +482,62 @@ var isnode =
       }
       delete graph.nodes[i2];
     },
+    spliceNode: function(graph,id) {
+      var n = graph.nodes[id];
+
+      for (var i = 0; i < n.ins.length; i++) {
+        var ni = graph.nodes[n.ins[i]];
+        ni.outs = Util.uniqueMerge(ni.outs,n.outs);
+        Util.remove(ni.outs,id);
+      }
+      for (var i = 0; i < n.outs.length; i++) {
+        var ni = graph.nodes[n.outs[i]];
+        ni.ins = Util.uniqueMerge(ni.ins,n.ins);
+        Util.remove(ni.ins,id);
+      }
+
+      delete graph.nodes[id];
+    },
     simplify: function(graph) {
-      var ins = {};
-      for (var i = 0; i < graph.ins.length; i++) {
-        var n = graph.nodes[graph.ins[i]];
-        if (!ins[n.val]) ins[n.val] = [];
-        ins[n.val].push(n.id);
-      }
-      for (var x in ins) {
-        console.log(ins[x]);
-        for (var i = 1; i < ins[x].length; i++) {
-          Graph.mergeNodes(graph,ins[x][0],ins[x][i]);
+      var changed;
+      do {
+        changed = false;
+        var ns = {};
+        Graph.postorder(graph,function(n){
+          if (!ns[n.val]) ns[n.val] = [];
+          ns[n.val].push(n.id);
+        });
+        for (var x in ns) {
+          var nl = ns[x];
+          for (var i = nl.length; --i >= 0;) {
+            var ni = graph.nodes[nl[i]];
+            for (var j = 0; j < i; j++) {
+              var nj = graph.nodes[nl[j]];
+              if (Util.equals(ni.ins,nj.ins) || Util.equals(ni.outs,nj.outs)) {
+                Graph.mergeNodes(graph,ni.id,nj.id);
+                changed = true;
+                break;
+              }
+            }
+          }
         }
-      }
+        var ds = ns['>'];
+        if (ds) {
+          for (var i = 0; i < ds.length; i++) {
+            var n = graph.nodes[ds[i]];
+            if (!n) continue;
+            var eq = true;
+            for (var j = 0; j < n.outs.length; j++) {
+              var nj = graph.nodes[n.outs[j]];
+              eq = eq && Util.equalsWithout(n.ins,nj.ins,n.id);
+            }
+            if (eq) {
+              Graph.spliceNode(graph,n.id);
+              changed = true;
+            }
+          }
+        }
+      } while (changed);
       console.log(graph);
       return graph;
     }
