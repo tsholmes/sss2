@@ -445,10 +445,19 @@ var isnode =
         traverse(graph.nodes[graph.ins[i]]);;
       }
     },
-    revPostorder: function(graph,callback) {
-      var order = [];
-      Graph.postorder(graph,function(n){order.push(n);});
-      while (order.length) callback(order.pop());
+    topSort: function(graph,callback) {
+      var visited = {};
+      function traverse(node) {
+        if (visited[node.id]) return;
+        visited[node.id] = true;
+        for (var i = 0; i < node.ins.length; i++) {
+          traverse(graph.nodes[node.ins[i]]);
+        }
+        callback(node);
+      }
+      for (var i = 0; i < graph.outs.length; i++) {
+        traverse(graph.nodes[graph.outs[i]]);;
+      }
     },
     flatten: function(graph) {
       var paths = {};
@@ -542,7 +551,7 @@ var isnode =
       }
       return ret;
     },
-    dominates: function(graph,i1,i2) {
+    domPath: function(graph,i1,i2) {
       var stack = [].concat(graph.nodes[i2].ins);
       var visited = {};
       var middle = [];
@@ -561,7 +570,7 @@ var isnode =
     },
     dominators: function(graph) {
       var doms = {};
-      Graph.revPostorder(graph,function(n){
+      Graph.topSort(graph,function(n){
         var preds = null;
         if (n.ins.length == 0) {
           preds = [];
@@ -571,6 +580,24 @@ var isnode =
           preds = doms[n.ins[0]];
           for (var i = 1; i < n.ins.length; i++) {
             preds = Util.intersection(preds,doms[n.ins[i]]);
+          }
+        }
+        doms[n.id] = Util.union([n.id],preds);
+      });
+      return doms;
+    },
+    revDominators: function(graph) {
+      var doms = {};
+      Graph.postorder(graph,function(n){
+        var preds = null;
+        if (n.outs.length == 0) {
+          preds = [];
+        } else if (n.outs.length < 2) {
+          preds = doms[n.outs[0]];
+        } else {
+          preds = doms[n.outs[0]];
+          for (var i = 1; i < n.outs.length; i++) {
+            preds = Util.intersection(preds,doms[n.outs[i]]);
           }
         }
         doms[n.id] = Util.union([n.id],preds);
@@ -644,19 +671,27 @@ var isnode =
         order.push(n.id);
       });
       var changed = false;
+      var doms = Graph.dominators(graph);
+      var rdoms = Graph.revDominators(graph);
       for (var i = 0; i < order.length; i++) {
         var id = order[i];
         var n = graph.nodes[id];
         if (!n) continue;
         for (var j = 0; j < n.outs.length; j++) {
           var nj = graph.nodes[n.outs[j]];
-          var dom = Graph.dominates(graph,id,nj.id);
+          if (!~doms[nj.id].indexOf(id)) continue;
+          var dom = Graph.domPath(graph,id,nj.id);
           if (!dom || !dom.length) continue;
-          nj.ins = [id];
+          var valid = true;
           for (var k = 0; k < dom.length; k++) {
-            Graph.spliceNode(graph,dom[k]);
+            valid = valid && !!~rdoms[dom[k]].indexOf(nj.id);
           }
-          changed = true;
+          if (valid) {
+            for (var k = 0; k < dom.length; k++) {
+              Graph.spliceNode(graph,dom[k]);
+            }
+            changed = true;
+          }
         }
       }
       return changed;
