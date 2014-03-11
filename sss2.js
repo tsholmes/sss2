@@ -9,7 +9,7 @@ var isnode =
         l1.push(l2[i]);
       }
     },
-    uniqueMerge: function(a1,a2) {
+    union: function(a1,a2) {
       var i1 = 0;
       var i2 = 0;
       var ret = [];
@@ -24,6 +24,25 @@ var isnode =
             ret.push(a1[i1]);
           }
           i1++;
+        }
+      }
+      return ret;
+    },
+    intersection: function(a1,a2) {
+      var i1 = 0;
+      var i2 = 0;
+      var ret = [];
+      while (i1 < a1.length && i2 < a2.length) {
+        if (a1[i1] == a2[i2]) {
+          if (!ret.length || a1[i1] > ret[ret.length-1]) {
+            ret.push(a1[i1]);
+          }
+          i1++;
+          i2++;
+        } else if (a1[i1] < a2[i2]) {
+          i1++;
+        } else {
+          i2++;
         }
       }
       return ret;
@@ -225,7 +244,7 @@ var isnode =
     this.s = scanner;
     this.rules = [];
     this.symbols = new SymbolTable();
-    this.nextid = 0;
+    this.nextid = 1;
   }
   Parser.prototype.assert = function(t,type) {
     if (t.type != type) {
@@ -426,6 +445,11 @@ var isnode =
         traverse(graph.nodes[graph.ins[i]]);;
       }
     },
+    revPostorder: function(graph,callback) {
+      var order = [];
+      Graph.postorder(graph,function(n){order.push(n);});
+      while (order.length) callback(order.pop());
+    },
     flatten: function(graph) {
       var paths = {};
 
@@ -461,8 +485,8 @@ var isnode =
       }
       Util.remove(graph.ins,i2);
       Util.remove(graph.outs,i2);
-      n1.ins = Util.uniqueMerge(n1.ins,n2.ins);
-      n1.outs = Util.uniqueMerge(n1.outs,n2.outs);
+      n1.ins = Util.union(n1.ins,n2.ins);
+      n1.outs = Util.union(n1.outs,n2.outs);
       //TODO: speed up
       for (var i = 0; i < n2.ins.length; i++) {
         var n3 = graph.nodes[n2.ins[i]];
@@ -487,58 +511,167 @@ var isnode =
 
       for (var i = 0; i < n.ins.length; i++) {
         var ni = graph.nodes[n.ins[i]];
-        ni.outs = Util.uniqueMerge(ni.outs,n.outs);
+        ni.outs = Util.union(ni.outs,n.outs);
         Util.remove(ni.outs,id);
       }
       for (var i = 0; i < n.outs.length; i++) {
         var ni = graph.nodes[n.outs[i]];
-        ni.ins = Util.uniqueMerge(ni.ins,n.ins);
+        ni.ins = Util.union(ni.ins,n.ins);
         Util.remove(ni.ins,id);
       }
 
       delete graph.nodes[id];
     },
-    simplify: function(graph) {
-      var changed;
-      do {
-        changed = false;
-        var ns = {};
-        Graph.postorder(graph,function(n){
-          if (!ns[n.val]) ns[n.val] = [];
-          ns[n.val].push(n.id);
-        });
-        for (var x in ns) {
-          var nl = ns[x];
-          for (var i = nl.length; --i >= 0;) {
-            var ni = graph.nodes[nl[i]];
-            for (var j = 0; j < i; j++) {
-              var nj = graph.nodes[nl[j]];
-              if (Util.equals(ni.ins,nj.ins) || Util.equals(ni.outs,nj.outs)) {
-                Graph.mergeNodes(graph,ni.id,nj.id);
+    partition: function(graph) {
+      var ns = {};
+      Graph.postorder(graph,function(n){
+        if (!ns[n.val]) ns[n.val] = [];
+        ns[n.val].push(n.id);
+      });
+      return ns;
+    },
+    revTreeChildren: function(graph,id) {
+      var n = graph.nodes[id];
+      var ret = [];
+      for (var i = 0; i < n.ins.length; i++) {
+        var ni = n.ins[i];
+        var nn = graph.nodes[ni];
+        if (nn.outs.length == 1) {
+          ret.push(ni);
+        }
+      }
+      return ret;
+    },
+    dominates: function(graph,i1,i2) {
+      var stack = [].concat(graph.nodes[i2].ins);
+      var visited = {};
+      var middle = [];
+      while (stack.length) {
+        var i = stack.pop();
+        if (i == i1 || visited[i]) continue;
+        visited[i] = true;
+        middle.push(i);
+        var n = graph.nodes[i];
+        if (n.ins.length == 0) {
+          return false;
+        }
+        Util.append(stack,n.ins);
+      }
+      return middle;
+    },
+    dominators: function(graph) {
+      var doms = {};
+      Graph.revPostorder(graph,function(n){
+        var preds = null;
+        if (n.ins.length == 0) {
+          preds = [];
+        } else if (n.ins.length < 2) {
+          preds = doms[n.ins[0]];
+        } else {
+          preds = doms[n.ins[0]];
+          for (var i = 1; i < n.ins.length; i++) {
+            preds = Util.intersection(preds,doms[n.ins[i]]);
+          }
+        }
+        doms[n.id] = Util.union([n.id],preds);
+      });
+      return doms;
+    },
+    simpleMerge: function(graph) {
+      var ns = Graph.partition(graph);
+      var changed = false;
+      for (var x in ns) {
+        var nl = ns[x];
+        for (var i = nl.length; --i >= 0;) {
+          var ni = graph.nodes[nl[i]];
+          for (var j = 0; j < i; j++) {
+            var nj = graph.nodes[nl[j]];
+            if ((Util.equals(ni.ins,nj.ins) || Util.equals(ni.outs,nj.outs)) &&
+                !~graph.ins.indexOf(ni.id) == !~graph.ins.indexOf(nj.id) &&
+                !~graph.outs.indexOf(ni.id) == !~graph.outs.indexOf(nj.id)) {
+              Graph.mergeNodes(graph,nj.id,ni.id);
+              changed = true;
+              break;
+            }
+          }
+        }
+      }
+      return changed;
+    },
+    domMerge: function(graph) {
+      var order = [];
+      // can't use callback when modifying graph
+      Graph.postorder(graph,function(n){
+        order.push(n.id);
+      });
+      var doms = Graph.dominators(graph);
+      var changed = false;
+      for (var i = 0; i < order.length; i++) {
+        var n = graph.nodes[order[i]];
+        if (!n) continue;
+        var ps = Graph.revTreeChildren(graph,n.id);
+        var dp = {};
+        for (var j = 0; j < ps.length; j++) {
+          var nj = graph.nodes[ps[j]];
+          if (!dp[nj.val]) dp[nj.val] = [];
+          dp[nj.val].push(nj.id);
+        }
+        if (!dp['>']) continue;
+        var ips = Graph.revTreeChildren(graph,dp['>'][0]);
+        for (var j = 0; j < ips.length; j++) {
+          var nj = graph.nodes[ips[j]];
+          if (dp[nj.val]) {
+            var ds = dp[nj.val];
+            for (var k = 0; k < ds.length; k++) {
+              var kid = ds[k];
+              var nk = graph.nodes[kid];
+              if (!nk) continue;
+              if (Util.intersection(doms[nj.id],doms[nk.id]).length) {
+                Graph.mergeNodes(graph,nj.id,nk.id);
                 changed = true;
                 break;
               }
             }
           }
         }
-        var ds = ns['>'];
-        if (ds) {
-          for (var i = 0; i < ds.length; i++) {
-            var n = graph.nodes[ds[i]];
-            if (!n) continue;
-            var eq = true;
-            for (var j = 0; j < n.outs.length; j++) {
-              var nj = graph.nodes[n.outs[j]];
-              eq = eq && Util.equalsWithout(n.ins,nj.ins,n.id);
-            }
-            if (eq) {
-              Graph.spliceNode(graph,n.id);
-              changed = true;
-            }
+      }
+      return changed;
+    },
+    domReduce: function(graph) {
+      var order = [];
+      // can't use callback when modifying graph
+      Graph.postorder(graph,function(n){
+        order.push(n.id);
+      });
+      var changed = false;
+      for (var i = 0; i < order.length; i++) {
+        var id = order[i];
+        var n = graph.nodes[id];
+        if (!n) continue;
+        for (var j = 0; j < n.outs.length; j++) {
+          var nj = graph.nodes[n.outs[j]];
+          var dom = Graph.dominates(graph,id,nj.id);
+          if (!dom || !dom.length) continue;
+          nj.ins = [id];
+          for (var k = 0; k < dom.length; k++) {
+            var kid = dom[k];
+            var kn = graph.nodes[kid];
+            delete graph.nodes[kid];
+            Util.remove(n.outs, kid);
           }
+          changed = true;
         }
+      }
+      return changed;
+    },
+    simplify: function(graph) {
+      var changed;
+      do {
+        changed = false;
+        changed = Graph.simpleMerge(graph) || changed;
+        changed = Graph.domMerge(graph) || changed;
+        changed = Graph.domReduce(graph) || changed;
       } while (changed);
-      console.log(graph);
       return graph;
     }
   };
