@@ -654,10 +654,7 @@ var isnode =
           if (!dom || !dom.length) continue;
           nj.ins = [id];
           for (var k = 0; k < dom.length; k++) {
-            var kid = dom[k];
-            var kn = graph.nodes[kid];
-            delete graph.nodes[kid];
-            Util.remove(n.outs, kid);
+            Graph.spliceNode(graph,dom[k]);
           }
           changed = true;
         }
