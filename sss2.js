@@ -8,6 +8,38 @@ var isnode =
       for (var i = 0; i < l2.length; i++) {
         l1.push(l2[i]);
       }
+    },
+    uniqueMerge: function(a1,a2) {
+      var i1 = 0;
+      var i2 = 0;
+      var ret = [];
+      while (i1 < a1.length || i2 < a2.length) {
+        if (i1 == a1.length || (i2 < a2.length && a2[i2] <= a1[i1])) {
+          if (!ret.length || a2[i2] > ret[ret.length-1]) {
+            ret.push(a2[i2]);
+          }
+          i2++;
+        } else {
+          if (!ret.length || a1[i1] > ret[ret.length-1]) {
+            ret.push(a1[i1]);
+          }
+          i1++;
+        }
+      }
+      return ret;
+    },
+    remove: function(a,el) {
+      var pos = a.indexOf(el);
+      if (~pos) {
+        a.splice(pos,1);
+      }
+    },
+    equals: function(a1,a2) {
+      if (a1.length != a2.length) return false;
+      for (var i = 0; i < a1.length; i++) {
+        if (a1[i] != a2[i]) return false;
+      }
+      return true;
     }
   };
 
@@ -268,9 +300,8 @@ var isnode =
     if (type == ">") {
       ret.next = {el:this.s.scan().val};
       cur = ret.next;
-      type = this.s.peek().type;
-    }
-    if (type == "name" || type == "(") {
+      cur.next = this.parseSelectorPath();
+    } else if (type == "name" || type == "(") {
       cur.next = this.parseSelectorPath();
     }
     return ret;
@@ -286,7 +317,7 @@ var isnode =
     }
 
     if (props.length > 0) {
-      var graph = this.graphify(selector);
+      var graph = Graph.simplify(this.graphify(selector));
       this.rules.push({selector:graph,properties:props});
     }
 
@@ -361,48 +392,94 @@ var isnode =
     this.parseDocument();
   }
 
-  function postorder(nodes,node,visited,order) {
-    if (visited[node.id]) return;
-    for (var i = 0; i < node.outs.length; i++) {
-      postorder(nodes,nodes[node.outs[i]],visited,order);
-    }
-    visited[node.id] = true;
-    order.push(node.id);
-  }
-
-  function flattenGraph(graph) {
-    var order = [];
-    for (var i = 0; i < graph.ins.length; i++) {
-      postorder(graph.nodes,graph.nodes[graph.ins[i]],{},order);
-    }
-
-    var paths = {};
-
-    for (var i = 0; i < order.length; i++) {
-      var id = order[i];
-      var n = graph.nodes[id];
-      var start = [[n.val]];
-      var ps = [];
-      if (n.outs.length) {
-        for (var j = 0; j < n.outs.length; j++) {
-          var p2s = paths[n.outs[j]];
-          for (var k = 0; k < p2s.length; k++) {
-            ps.push(start.concat(p2s[k]));
-          }
+  Graph = {
+    postorder: function(graph,callback) {
+      var visited = {};
+      function traverse(node) {
+        if (visited[node.id]) return;
+        visited[node.id] = true;
+        for (var i = 0; i < node.outs.length; i++) {
+          traverse(graph.nodes[node.outs[i]]);
         }
-      } else {
-        ps.push(start);
+        callback(node);
       }
-      paths[id] = ps;
-    }
+      for (var i = 0; i < graph.ins.length; i++) {
+        traverse(graph.nodes[graph.ins[i]]);;
+      }
+    },
+    flatten: function(graph) {
+      var paths = {};
 
-    var ret = [];
-    for (var i = 0; i < graph.ins.length; i++) {
-      Util.append(ret,paths[graph.ins[i]]);
-    }
+      Graph.postorder(graph, function(n){
+        var id = n.id;
+        var start = [[n.val]];
+        var ps = [];
+        if (n.outs.length) {
+          for (var j = 0; j < n.outs.length; j++) {
+            var p2s = paths[n.outs[j]];
+            for (var k = 0; k < p2s.length; k++) {
+              ps.push(start.concat(p2s[k]));
+            }
+          }
+        } else {
+          ps.push(start);
+        }
+        paths[id] = ps;
+      });
 
-    return ret;
-  }
+      var ret = [];
+      for (var i = 0; i < graph.ins.length; i++) {
+        Util.append(ret,paths[graph.ins[i]]);
+      }
+
+      return ret;
+    },
+    mergeNodes: function(graph,i1,i2) {
+      var n1 = graph.nodes[i1];
+      var n2 = graph.nodes[i2];
+      if (n1.val != n2.val) {
+        throw new Error("Bad merge: '" + n1.val + "'!='" + n2.val +"'");
+      }
+      Util.remove(graph.ins,i2);
+      Util.remove(graph.outs,i2);
+      n1.ins = Util.uniqueMerge(n1.ins,n2.ins);
+      n1.outs = Util.uniqueMerge(n1.outs,n2.outs);
+      //TODO: speed up
+      for (var i = 0; i < n2.ins.length; i++) {
+        var n3 = graph.nodes[n2.ins[i]];
+        Util.remove(n3.outs,i2);
+        if (!~n3.outs.indexOf(i1)) {
+          n3.outs.push(i1);
+          n3.outs.sort();
+        }
+      }
+      for (var i = 0; i < n2.outs.length; i++) {
+        var n3 = graph.nodes[n2.outs[i]];
+        Util.remove(n3.ins,i2);
+        if (!~n3.ins.indexOf(i1)) {
+          n3.ins.push(i1);
+          n3.ins.sort();
+        }
+      }
+      delete graph.nodes[i2];
+    },
+    simplify: function(graph) {
+      var ins = {};
+      for (var i = 0; i < graph.ins.length; i++) {
+        var n = graph.nodes[graph.ins[i]];
+        if (!ins[n.val]) ins[n.val] = [];
+        ins[n.val].push(n.id);
+      }
+      for (var x in ins) {
+        console.log(ins[x]);
+        for (var i = 1; i < ins[x].length; i++) {
+          Graph.mergeNodes(graph,ins[x][0],ins[x][i]);
+        }
+      }
+      console.log(graph);
+      return graph;
+    }
+  };
 
   function MinifiedFormatter() { }
   MinifiedFormatter.prototype.format = function(rules) {
@@ -413,7 +490,7 @@ var isnode =
     return ret;
   }
   MinifiedFormatter.prototype.formatRule = function(rule) {
-    var paths = flattenGraph(rule.selector);
+    var paths = Graph.flatten(rule.selector);
     var ret = "";
     for (var i = 0; i < paths.length; i++) {
       if (i != 0) ret += ",";
@@ -451,7 +528,7 @@ var isnode =
     return ret;
   }
   PrettyFormatter.prototype.formatRule = function(rule) {
-    var paths = flattenGraph(rule.selector);
+    var paths = Graph.flatten(rule.selector);
     var ret = "";
     for (var i = 0; i < paths.length; i++) {
       if (i != 0) ret += ",\n";

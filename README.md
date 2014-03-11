@@ -20,7 +20,7 @@ selectorPath    -> (name|selector) ('>'? selectorPath)?
 body            -> bodyElement*
 bodyElement     -> nestedRule | propertyElement | varElement
 nestedRule      -> nestedSelector '{' body '}'
-nestedSelector  -> '>' selector
+nestedSelector  -> '>'? selector
 propertyElement -> name '=' value ';'
 varElement      -> varName '=' value ';'
 value           -> (string|varName)+
